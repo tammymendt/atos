@@ -1,5 +1,7 @@
 package atos.twitter;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.accumulators.LongCounter;
@@ -13,6 +15,8 @@ import org.apache.flink.api.java.hadoop.mapred.HadoopInputFormat;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple5;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.contrib.tweetinputformat.model.User.Users;
+import org.apache.flink.contrib.tweetinputformat.model.tweet.Tweet;
 import org.apache.flink.util.Collector;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
@@ -37,22 +41,23 @@ public class TwitterWordCount {
 		DataSet<String> tweetTextDataset;
 
 		/*Read directly from compressed file*/
-/*		DataSet<Tuple2<LongWritable,Text>> compressedDataSet = readCompressedXZ(env,"/home/tamara/Documents/atos/data.tar.xz");
-		tweetTextDataset = compressedDataSet.map(new ExtractCompressedString()).flatMap(new ParseLineToTweet());
-*/
+		DataSet<Tuple2<LongWritable,Text>> compressedDataSet = readCompressedXZ(env,"/home/tamara/Documents/atos/data.tar.xz");
+		tweetTextDataset = compressedDataSet.map(new ExtractCompressedString()).map(new ParseJSONObject())
+							.map(new JSONtoTweet()).map(new TextFromTweet());
+
 		/*Read dt1_raw.csw into a DataSet of Strings using readTextFile*/
 /*		DataSet<String> dataSet = env.readTextFile("/home/tamara/Documents/atos/dt1_raw.csv");
 		tweetTextDataset = dataSet.flatMap(new ParseLineToTweet());
 */
 		/*Read dt1_raw.csv into a Tuple of Strings*/
-		DataSet<Tuple5<String,String,String,String,String>> tupleDataSet =
+		/*DataSet<Tuple5<String,String,String,String,String>> tupleDataSet =
 				env.readCsvFile("/home/tamara/Documents/atos/dt1_raw.csv").ignoreFirstLine()
 					.ignoreInvalidLines().parseQuotedStrings('"')
 					.types(String.class, String.class, String.class, String.class, String.class);
-		tweetTextDataset = tupleDataSet.flatMap(new TweetFromTuple()).map(new TextFromTweet());
+		tweetTextDataset = tupleDataSet.flatMap(new TweetFromTuple()).map(new TextFromSummarizedTweet());*/
 
 		/*Read dt1_raw.csv into a Tweet POJO*/
-/*		DataSet<SummarizedTweet> pojoDataSet =
+		/*DataSet<SummarizedTweet> pojoDataSet =
 				env.readCsvFile("/home/tamara/Documents/atos/dt1_raw.csv").ignoreFirstLine()
 					.ignoreInvalidLines().parseQuotedStrings('\"')
 					.pojoType(SummarizedTweet.class, "id", "text", "date", "users", "sentiment");
@@ -152,9 +157,35 @@ public class TwitterWordCount {
 
 	}
 
+	public static final class ParseJSONObject implements MapFunction<String, JsonObject> {
+
+		@Override
+		public JsonObject map(String string) throws Exception {
+			return new Gson().fromJson(string, JsonObject.class);
+		}
+	}
+
 	/*************************************************
 	 Tweet Functions
 	 *************************************************/
+
+	public static final class JSONtoTweet implements MapFunction<JsonObject, Tweet> {
+
+		@Override
+		public Tweet map(JsonObject json) throws Exception {
+
+			Tweet tweet = new Tweet();
+
+			tweet.setId(json.get("id")==null?-1:Integer.parseInt(json.get("id").getAsString()));
+			tweet.setText(json.get("text")==null?"":json.get("text").getAsString());
+			tweet.setCreated_at(json.get("created_at")==null?"":json.get("created_at").getAsString());
+			tweet.setLang(json.get("lang")==null?"":json.get("lang").getAsString());
+			tweet.setRetweet_count(json.get("retweet_count") == null ? -1 : Integer.parseInt(json.get("retweet_count").getAsString()));
+			tweet.setUser(json.get("user")!= null? new Gson().fromJson(json.get("user").toString(), Users.class):null);
+
+			return tweet;
+		}
+	}
 
 	public static final class TweetFromTuple extends RichFlatMapFunction<Tuple5<String,String,String,String,String>,SummarizedTweet> {
 
@@ -184,7 +215,15 @@ public class TwitterWordCount {
 		}
 	}
 
-	public static final class TextFromTweet implements MapFunction<SummarizedTweet, String> {
+	public static final class TextFromTweet implements MapFunction<Tweet, String> {
+
+		@Override
+		public String map(Tweet tweet) throws Exception {
+			return tweet.getText();
+		}
+	}
+
+	public static final class TextFromSummarizedTweet implements MapFunction<SummarizedTweet, String> {
 
 		@Override
 		public String map(SummarizedTweet tweet) throws Exception {
