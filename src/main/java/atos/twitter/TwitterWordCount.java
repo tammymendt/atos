@@ -37,8 +37,8 @@ public class TwitterWordCount {
 
 		DataSet<String> tweetTextDataset;
 
-		String jsonTweetFile = "src/main/resources/tweets.json";
-		String csvTweetFile = "src/main/resources/tweets.csv";
+		String jsonTweetFile = System.getProperty("user.dir")+"/src/main/resources/tweets.json";
+		String csvTweetFile = System.getProperty("user.dir")+"/src/main/resources/tweets.csv";
 
 		/***************************************************************
 		 * Read directly from compressed (tar.xz) file.
